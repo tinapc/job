@@ -7,6 +7,7 @@ use BadMethodCallException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use Illuminate\Support\Collection;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Traits\Macroable;
 use Illuminate\Contracts\Support\Arrayable;
@@ -631,23 +632,16 @@ class Builder
      */
     public function whereNested(Closure $callback, $boolean = 'and')
     {
-        $query = $this->forNestedWhere();
+        // To handle nested queries we'll actually create a brand new query instance
+        // and pass it off to the Closure that we have. The Closure can simply do
+        // do whatever it wants to a query then we will store it for compiling.
+        $query = $this->newQuery();
+
+        $query->from($this->from);
 
         call_user_func($callback, $query);
 
         return $this->addNestedWhereQuery($query, $boolean);
-    }
-
-    /**
-     * Create a new query instance for nested where condition.
-     *
-     * @return \Illuminate\Database\Query\Builder
-     */
-    public function forNestedWhere()
-    {
-        $query = $this->newQuery();
-
-        return $query->from($this->from);
     }
 
     /**
@@ -1373,6 +1367,21 @@ class Builder
     }
 
     /**
+     * Get a single column's value from the first result of a query.
+     *
+     * This is an alias for the "value" method.
+     *
+     * @param  string  $column
+     * @return mixed
+     *
+     * @deprecated since version 5.1.
+     */
+    public function pluck($column)
+    {
+        return $this->value($column);
+    }
+
+    /**
      * Execute the query and get the first result.
      *
      * @param  array   $columns
@@ -1393,17 +1402,24 @@ class Builder
      */
     public function get($columns = ['*'])
     {
-        $original = $this->columns;
-
-        if (is_null($original)) {
+        if (is_null($this->columns)) {
             $this->columns = $columns;
         }
 
-        $results = $this->processor->processSelect($this, $this->runSelect());
+        return $this->processor->processSelect($this, $this->runSelect());
+    }
 
-        $this->columns = $original;
-
-        return $results;
+    /**
+     * Execute the query as a fresh "select" statement.
+     *
+     * @param  array  $columns
+     * @return array|static[]
+     *
+     * @deprecated since version 5.1. Use get instead.
+     */
+    public function getFresh($columns = ['*'])
+    {
+        return $this->get($columns);
     }
 
     /**
@@ -1573,43 +1589,34 @@ class Builder
      * @param  string|null  $key
      * @return array
      */
-    public function pluck($column, $key = null)
-    {
-        $results = $this->get(is_null($key) ? [$column] : [$column, $key]);
-
-        // If the columns are qualified with a table or have an alias, we cannot use
-        // those directly in the "pluck" operations since the results from the DB
-        // are only keyed by the column itself. We'll strip the table out here.
-        return Arr::pluck(
-            $results,
-            $this->stripeTableForPluck($column),
-            $this->stripeTableForPluck($key)
-        );
-    }
-
-    /**
-     * Alias for the "pluck" method.
-     *
-     * @param  string  $column
-     * @param  string|null  $key
-     * @return array
-     *
-     * @deprecated since version 5.2. Use the "pluck" method directly.
-     */
     public function lists($column, $key = null)
     {
-        return $this->pluck($column, $key);
+        $columns = $this->getListSelect($column, $key);
+
+        $results = new Collection($this->get($columns));
+
+        return $results->pluck($columns[0], Arr::get($columns, 1))->all();
     }
 
     /**
-     * Strip off the table name or alias from a column identifier.
+     * Get the columns that should be used in a list array.
      *
      * @param  string  $column
-     * @return string|null
+     * @param  string  $key
+     * @return array
      */
-    protected function stripeTableForPluck($column)
+    protected function getListSelect($column, $key)
     {
-        return is_null($column) ? $column : last(preg_split('~\.| ~', $column));
+        $select = is_null($key) ? [$column] : [$column, $key];
+
+        // If the selected column contains a "dot", we will remove it so that the list
+        // operation can run normally. Specifying the table is not needed, since we
+        // really want the names of the columns as it is in this resulting array.
+        return array_map(function ($column) {
+            $dot = strpos($column, '.');
+
+            return $dot === false ? $column : substr($column, $dot + 1);
+        }, $select);
     }
 
     /**
@@ -1621,7 +1628,7 @@ class Builder
      */
     public function implode($column, $glue = '')
     {
-        return implode($glue, $this->pluck($column));
+        return implode($glue, $this->lists($column));
     }
 
     /**

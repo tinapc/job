@@ -8,11 +8,10 @@ use SplFileInfo;
 use RuntimeException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
-use Illuminate\Contracts\Support\Arrayable;
 use Symfony\Component\HttpFoundation\ParameterBag;
 use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
 
-class Request extends SymfonyRequest implements Arrayable, ArrayAccess
+class Request extends SymfonyRequest implements ArrayAccess
 {
     /**
      * The decoded JSON content for the request.
@@ -290,13 +289,13 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
     {
         $input = $this->getInputSource()->all() + $this->query->all();
 
-        return data_get($input, $key, $default);
+        return Arr::get($input, $key, $default);
     }
 
     /**
      * Get a subset of the items from the input data.
      *
-     * @param  array|mixed  $keys
+     * @param  array  $keys
      * @return array
      */
     public function only($keys)
@@ -308,7 +307,7 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
         $input = $this->all();
 
         foreach ($keys as $key) {
-            Arr::set($results, $key, data_get($input, $key));
+            Arr::set($results, $key, Arr::get($input, $key));
         }
 
         return $results;
@@ -375,7 +374,7 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
      */
     public function file($key = null, $default = null)
     {
-        return data_get($this->files->all(), $key, $default);
+        return Arr::get($this->files->all(), $key, $default);
     }
 
     /**
@@ -552,7 +551,7 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
             return $this->json;
         }
 
-        return data_get($this->json->all(), $key, $default);
+        return Arr::get($this->json->all(), $key, $default);
     }
 
     /**
@@ -713,20 +712,6 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
     }
 
     /**
-     * Get the bearer token from the request headers.
-     *
-     * @return string|null
-     */
-    public function bearerToken()
-    {
-        $header = $this->header('Authorization', '');
-
-        if (Str::startsWith($header, 'Bearer ')) {
-            return Str::substr($header, 7);
-        }
-    }
-
-    /**
      * Create an Illuminate request from a Symfony instance.
      *
      * @param  \Symfony\Component\HttpFoundation\Request  $request
@@ -807,25 +792,6 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
     }
 
     /**
-     * Get a unique fingerprint for the request / route / IP address.
-     *
-     * @return string
-     */
-    public function fingerprint()
-    {
-        if (! $this->route()) {
-            throw new RuntimeException('Unable to generate fingerprint. Route unavailable.');
-        }
-
-        return sha1(
-            implode('|', $this->route()->methods()).
-            '|'.$this->route()->domain().
-            '|'.$this->route()->uri().
-            '|'.$this->ip()
-        );
-    }
-
-    /**
      * Get the user resolver callback.
      *
      * @return \Closure
@@ -876,16 +842,6 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
     }
 
     /**
-     * Get all of the input and files for the request.
-     *
-     * @return array
-     */
-    public function toArray()
-    {
-        return $this->all();
-    }
-
-    /**
      * Determine if the given offset exists.
      *
      * @param  string  $offset
@@ -904,7 +860,7 @@ class Request extends SymfonyRequest implements Arrayable, ArrayAccess
      */
     public function offsetGet($offset)
     {
-        return data_get($this->all(), $offset);
+        return Arr::get($this->all(), $offset);
     }
 
     /**
